@@ -1,23 +1,31 @@
 use std::{
     error::Error,
-    io::{Read, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     net::{TcpListener, TcpStream},
 };
 
 enum ResponseKind {
-    Ok,
+    Ok(Option<String>),
     NotFound,
 }
 
 trait Message {
-    fn get_message(&self) -> &[u8];
+    fn get_message(&self) -> Vec<u8>;
 }
 
 impl Message for ResponseKind {
-    fn get_message(&self) -> &[u8] {
+    fn get_message(&self) -> Vec<u8> {
         match self {
-            ResponseKind::Ok => b"HTTP/1.1 200 OK\r\n\r\n",
-            ResponseKind::NotFound => b"HTTP/1.1 404 Not Found\r\n\r\n",
+            ResponseKind::Ok(None) => b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
+            ResponseKind::Ok(Some(body)) => {
+                let content_length = body.len();
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    content_length, body
+                )
+                .into_bytes()
+            }
+            ResponseKind::NotFound => b"HTTP/1.1 404 Not Found\r\n\r\n".to_vec(),
         }
     }
 }
@@ -35,7 +43,7 @@ fn run_server() -> Result<(), Box<dyn Error>> {
 
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
-            handle_connection(stream)?;
+            let _ = handle_connection(stream);
         }
     }
 
@@ -43,17 +51,31 @@ fn run_server() -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn Error>> {
-    let mut buffer = [0; 512];
-    stream.read(&mut buffer)?;
-    let request = String::from_utf8_lossy(&buffer);
-    println!("Request: {} \n\n *** *** *** *** \n", request);
+    let read_stream = stream.try_clone()?;
+    let write_stream = stream.try_clone()?;
+    let buf_reader = BufReader::new(read_stream);
+    let mut buf_writer = BufWriter::new(write_stream);
+    let http_request: Vec<String> = buf_reader
+        .lines()
+        .map(|result| result.unwrap())
+        .take_while(|line| !line.is_empty())
+        .collect();
 
-    let response = match resolve_path(&request) {
-        Some("/") => ResponseKind::Ok,
+    println!("Request: {:#?}", http_request);
+
+    let response = match resolve_path(&http_request[0]) {
+        Some("/") => ResponseKind::Ok(None),
+        Some(path) => {
+            if path.starts_with("/echo/") {
+                ResponseKind::Ok(path.strip_prefix("/echo/").map(|s| s.to_string()))
+            } else {
+                ResponseKind::NotFound
+            }
+        }
         _ => ResponseKind::NotFound,
     };
 
-    stream.write(response.get_message())?;
+    buf_writer.write_all(&response.get_message())?;
     stream.flush()?;
     Ok(())
 }
