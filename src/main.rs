@@ -1,10 +1,11 @@
 use std::{
     error::Error,
+    fs,
     io::{BufRead, BufReader, BufWriter, Write},
     net::{TcpListener, TcpStream},
 };
 
-enum ResponseKind {
+enum StatusLine {
     Ok(Option<String>),
     NotFound,
 }
@@ -13,11 +14,11 @@ trait Message {
     fn get_message(&self) -> Vec<u8>;
 }
 
-impl Message for ResponseKind {
+impl Message for StatusLine {
     fn get_message(&self) -> Vec<u8> {
         match self {
-            ResponseKind::Ok(None) => b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
-            ResponseKind::Ok(Some(body)) => {
+            StatusLine::Ok(None) => b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
+            StatusLine::Ok(Some(body)) => {
                 let content_length = body.len();
                 format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
@@ -25,7 +26,7 @@ impl Message for ResponseKind {
                 )
                 .into_bytes()
             }
-            ResponseKind::NotFound => b"HTTP/1.1 404 Not Found\r\n\r\n".to_vec(),
+            StatusLine::NotFound => b"HTTP/1.1 404 Not Found\r\n\r\n".to_vec(),
         }
     }
 }
@@ -50,34 +51,51 @@ fn run_server() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn Error>> {
+fn handle_connection(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let read_stream = stream.try_clone()?;
     let write_stream = stream.try_clone()?;
     let buf_reader = BufReader::new(read_stream);
     let mut buf_writer = BufWriter::new(write_stream);
-    let http_request: Vec<String> = buf_reader
+
+    let http_request: Result<Vec<String>, _> = buf_reader
         .lines()
-        .map(|result| result.unwrap())
-        .take_while(|line| !line.is_empty())
         .collect();
+
+    let http_request = match http_request {
+        Ok(request) => request,
+        Err(e) => {
+            eprintln!("Failed to read request: {}", e);
+            return Ok(());
+        }
+    };
 
     println!("Request: {:#?}", http_request);
 
-    let response = match resolve_path(&http_request[0]) {
-        Some("/") => ResponseKind::Ok(None),
-        Some(path) => {
-            if path.starts_with("/echo/") {
-                ResponseKind::Ok(path.strip_prefix("/echo/").map(|s| s.to_string()))
-            } else {
-                ResponseKind::NotFound
-            }
+    let response = if let Some(request_line) = http_request.get(0) {
+        match resolve_path(request_line) {
+            Some("/") => StatusLine::Ok(None),
+            Some(path) => path_to_statusline(path),
+            _ => StatusLine::NotFound,
         }
-        _ => ResponseKind::NotFound,
+    } else {
+        eprintln!("Received empty request");
+        return Ok(());
     };
 
     buf_writer.write_all(&response.get_message())?;
-    stream.flush()?;
+    buf_writer.flush()?;
     Ok(())
+}
+
+fn path_to_statusline(path: &str) -> StatusLine {
+    match path.strip_prefix("/echo/") {
+        Some(s) => StatusLine::Ok(Some(s.to_string())),
+        None => match path.strip_prefix("/file/") {
+            Some(file_path) => fs::read_to_string(file_path)
+                .map_or(StatusLine::NotFound, |file_contents| StatusLine::Ok(Some(file_contents))),
+            None => StatusLine::NotFound,
+        },
+    }
 }
 
 fn resolve_path(request: &str) -> Option<&str> {
