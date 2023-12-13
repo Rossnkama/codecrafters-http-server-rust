@@ -5,6 +5,8 @@ use std::{
     net::{TcpListener, TcpStream},
 };
 
+use nom::FindSubstring;
+
 enum StatusLine {
     Ok(Option<String>),
     NotFound,
@@ -57,24 +59,18 @@ fn handle_connection(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let buf_reader = BufReader::new(read_stream);
     let mut buf_writer = BufWriter::new(write_stream);
 
-    let http_request: Result<Vec<String>, _> = buf_reader
+    let http_request: Vec<_> = buf_reader
         .lines()
+        .map(|result| result.unwrap())
+        .take_while(|line| !line.is_empty())
         .collect();
-
-    let http_request = match http_request {
-        Ok(request) => request,
-        Err(e) => {
-            eprintln!("Failed to read request: {}", e);
-            return Ok(());
-        }
-    };
 
     println!("Request: {:#?}", http_request);
 
     let response = if let Some(request_line) = http_request.get(0) {
         match resolve_path(request_line) {
             Some("/") => StatusLine::Ok(None),
-            Some(path) => path_to_statusline(path),
+            Some(path) => path_to_statusline(path, &http_request),
             _ => StatusLine::NotFound,
         }
     } else {
@@ -87,15 +83,36 @@ fn handle_connection(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn path_to_statusline(path: &str) -> StatusLine {
-    match path.strip_prefix("/echo/") {
-        Some(s) => StatusLine::Ok(Some(s.to_string())),
-        None => match path.strip_prefix("/file/") {
-            Some(file_path) => fs::read_to_string(file_path)
-                .map_or(StatusLine::NotFound, |file_contents| StatusLine::Ok(Some(file_contents))),
-            None => StatusLine::NotFound,
-        },
+fn path_to_statusline(path: &str, request_data: &Vec<String>) -> StatusLine {
+    if let Some(s) = path.strip_prefix("/echo/") {
+        return StatusLine::Ok(Some(s.to_string()));
     }
+
+    if let Some(file_path) = path.strip_prefix("/file/") {
+        return handle_file_path(file_path);
+    }
+
+    if path.find_substring("/user-agent").is_some() {
+        return handle_user_agent(request_data);
+    }
+
+    StatusLine::NotFound
+}
+
+fn handle_file_path(file_path: &str) -> StatusLine {
+    fs::read_to_string(file_path)
+        .map_or(StatusLine::NotFound, |file_contents| {
+            StatusLine::Ok(Some(file_contents))
+        })
+}
+
+fn handle_user_agent(request_data: &Vec<String>) -> StatusLine {
+    request_data
+        .iter()
+        .find(|header| header.contains("User-Agent:"))
+        .map_or(StatusLine::NotFound, |user_agent| {
+            StatusLine::Ok(user_agent.strip_prefix("User-Agent: ").map(|s| s.to_string()))
+        })
 }
 
 fn resolve_path(request: &str) -> Option<&str> {
