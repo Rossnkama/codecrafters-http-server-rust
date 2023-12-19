@@ -51,7 +51,7 @@ fn run_server() -> Result<(), Box<dyn Error>> {
         if let Ok(stream) = stream {
             std::thread::spawn(move || {
                 println!("New thread accepted");
-                sleep(Duration::from_secs(15));
+                sleep(Duration::from_secs(3));
                 let _ = handle_connection(stream);
             });
         }
