@@ -1,8 +1,12 @@
 use std::{
-    error::Error,
+    // File system related
     fs,
+    // Error handling
+    error::Error,
+    // IO related
     io::{BufRead, BufReader, BufWriter, Write},
-    net::{TcpListener, TcpStream},
+    // Networking related
+    net::{TcpListener, TcpStream}, thread::sleep, time::Duration,
 };
 
 use nom::FindSubstring;
@@ -41,12 +45,15 @@ fn main() {
 
 fn run_server() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:4221")?;
-
     println!("Server up!");
 
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
-            let _ = handle_connection(stream);
+            std::thread::spawn(move || {
+                println!("New thread accepted");
+                sleep(Duration::from_secs(15));
+                let _ = handle_connection(stream);
+            });
         }
     }
 
@@ -70,7 +77,7 @@ fn handle_connection(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let response = if let Some(request_line) = http_request.get(0) {
         match resolve_path(request_line) {
             Some("/") => StatusLine::Ok(None),
-            Some(path) => path_to_statusline(path, &http_request),
+            Some(path) => path_to_status_line(path, &http_request),
             _ => StatusLine::NotFound,
         }
     } else {
@@ -83,7 +90,7 @@ fn handle_connection(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn path_to_statusline(path: &str, request_data: &Vec<String>) -> StatusLine {
+fn path_to_status_line(path: &str, request_data: &Vec<String>) -> StatusLine {
     if let Some(s) = path.strip_prefix("/echo/") {
         return StatusLine::Ok(Some(s.to_string()));
     }
