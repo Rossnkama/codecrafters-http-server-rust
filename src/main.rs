@@ -25,8 +25,13 @@ struct Args {
 }
 
 enum StatusLine {
-    Ok(Option<String>),
+    Ok(Option<String>, ContentType),
     NotFound,
+}
+
+enum ContentType {
+    TextPlain,
+    ApplicationOctetStream,
 }
 
 trait Message {
@@ -36,12 +41,16 @@ trait Message {
 impl Message for StatusLine {
     fn get_message(&self) -> Vec<u8> {
         match self {
-            StatusLine::Ok(None) => b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
-            StatusLine::Ok(Some(body)) => {
+            StatusLine::Ok(None, _) => b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
+            StatusLine::Ok(Some(body), content_type) => {
+                let content_type_str = match content_type {
+                    ContentType::TextPlain => "text/plain",
+                    ContentType::ApplicationOctetStream => "application/octet-stream",
+                };
                 let content_length = body.len();
                 format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-                    content_length, body
+                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                    content_type_str, content_length, body
                 )
                 .into_bytes()
             }
@@ -89,7 +98,7 @@ fn handle_connection(stream: TcpStream) -> Result<(), Box<dyn Error>> {
 
     let response = if let Some(request_line) = http_request.get(0) {
         match resolve_path(request_line) {
-            Some("/") => StatusLine::Ok(None),
+            Some("/") => StatusLine::Ok(None, ContentType::TextPlain),
             Some(path) => path_to_status_line(path, &http_request),
             _ => StatusLine::NotFound,
         }
@@ -105,7 +114,7 @@ fn handle_connection(stream: TcpStream) -> Result<(), Box<dyn Error>> {
 
 fn path_to_status_line(path: &str, request_data: &Vec<String>) -> StatusLine {
     if let Some(s) = path.strip_prefix("/echo/") {
-        return StatusLine::Ok(Some(s.to_string()));
+        return StatusLine::Ok(Some(s.to_string()), ContentType::TextPlain);
     }
 
     if let Some(file_path) = path.strip_prefix("/files/") {
@@ -125,7 +134,7 @@ fn handle_file_path(file_path: &str) -> StatusLine {
     full_path.push(file_path);
     fs::read_to_string(full_path)
         .map_or(StatusLine::NotFound, |file_contents| {
-            StatusLine::Ok(Some(file_contents))
+            StatusLine::Ok(Some(file_contents), ContentType::ApplicationOctetStream)
         })
 }
 
@@ -134,7 +143,7 @@ fn handle_user_agent(request_data: &Vec<String>) -> StatusLine {
         .iter()
         .find(|header| header.contains("User-Agent:"))
         .map_or(StatusLine::NotFound, |user_agent| {
-            StatusLine::Ok(user_agent.strip_prefix("User-Agent: ").map(|s| s.to_string()))
+            StatusLine::Ok(user_agent.strip_prefix("User-Agent: ").map(|s| s.to_string()), ContentType::TextPlain)
         })
 }
 
