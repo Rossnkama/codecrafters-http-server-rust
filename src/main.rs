@@ -13,7 +13,14 @@ use clap::Parser;
 use nom::FindSubstring;
 
 #[derive(Parser)]
+#[clap(
+    name = "HTTP Server",
+    version = "1.0",
+    author = "ross@dedsol.xyz",
+    about = "A Simple HTTP Server"
+)]
 struct Args {
+    #[clap(long, short)]
     directory: PathBuf,
 }
 
@@ -116,7 +123,6 @@ fn handle_file_path(file_path: &str) -> StatusLine {
     let args = Args::parse();
     let mut full_path = args.directory.clone();
     full_path.push(file_path);
-    println!("{:#?}", full_path);
     fs::read_to_string(full_path)
         .map_or(StatusLine::NotFound, |file_contents| {
             StatusLine::Ok(Some(file_contents))
