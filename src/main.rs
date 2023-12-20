@@ -1,6 +1,7 @@
 use std::{
     // File system related
     fs,
+    path::PathBuf,
     // Error handling
     error::Error,
     // IO related
@@ -8,8 +9,13 @@ use std::{
     // Networking related
     net::{TcpListener, TcpStream}, thread::sleep, time::Duration,
 };
-
+use clap::Parser;
 use nom::FindSubstring;
+
+#[derive(Parser)]
+struct Args {
+    directory: PathBuf,
+}
 
 enum StatusLine {
     Ok(Option<String>),
@@ -95,7 +101,7 @@ fn path_to_status_line(path: &str, request_data: &Vec<String>) -> StatusLine {
         return StatusLine::Ok(Some(s.to_string()));
     }
 
-    if let Some(file_path) = path.strip_prefix("/file/") {
+    if let Some(file_path) = path.strip_prefix("/files/") {
         return handle_file_path(file_path);
     }
 
@@ -107,7 +113,11 @@ fn path_to_status_line(path: &str, request_data: &Vec<String>) -> StatusLine {
 }
 
 fn handle_file_path(file_path: &str) -> StatusLine {
-    fs::read_to_string(file_path)
+    let args = Args::parse();
+    let mut full_path = args.directory.clone();
+    full_path.push(file_path);
+    println!("{:#?}", full_path);
+    fs::read_to_string(full_path)
         .map_or(StatusLine::NotFound, |file_contents| {
             StatusLine::Ok(Some(file_contents))
         })
