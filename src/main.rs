@@ -1,16 +1,16 @@
+use clap::Parser;
+use nom::FindSubstring;
 use std::{
-    // File system related
-    fs,
-    path::PathBuf,
     // Error handling
     error::Error,
+    // File system related
+    fs,
     // IO related
     io::{BufRead, BufReader, BufWriter, Write},
     // Networking related
-    net::{TcpListener, TcpStream}, thread::sleep, time::Duration,
+    net::{TcpListener, TcpStream},
+    path::PathBuf,
 };
-use clap::Parser;
-use nom::FindSubstring;
 
 #[derive(Parser)]
 #[clap(
@@ -72,8 +72,6 @@ fn run_server() -> Result<(), Box<dyn Error>> {
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
             std::thread::spawn(move || {
-                println!("New thread accepted");
-                sleep(Duration::from_secs(3));
                 let _ = handle_connection(stream);
             });
         }
@@ -118,7 +116,7 @@ fn path_to_status_line(path: &str, request_data: &Vec<String>) -> StatusLine {
     }
 
     if let Some(file_path) = path.strip_prefix("/files/") {
-        return handle_file_path(file_path);
+        return handle_file_path(file_path, request_data);
     }
 
     if path.find_substring("/user-agent").is_some() {
@@ -128,14 +126,25 @@ fn path_to_status_line(path: &str, request_data: &Vec<String>) -> StatusLine {
     StatusLine::NotFound
 }
 
-fn handle_file_path(file_path: &str) -> StatusLine {
+fn handle_file_path(file_path: &str, request_data: &Vec<String>) -> StatusLine {
     let args = Args::parse();
     let mut full_path = args.directory.clone();
     full_path.push(file_path);
-    fs::read_to_string(full_path)
-        .map_or(StatusLine::NotFound, |file_contents| {
+
+    let request_type = request_data
+        .iter()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(0);
+
+    if request_type == Some("GET") {
+        fs::read_to_string(full_path).map_or(StatusLine::NotFound, |file_contents| {
             StatusLine::Ok(Some(file_contents), ContentType::ApplicationOctetStream)
         })
+    } else {
+        StatusLine::NotFound
+    }
 }
 
 fn handle_user_agent(request_data: &Vec<String>) -> StatusLine {
@@ -143,7 +152,12 @@ fn handle_user_agent(request_data: &Vec<String>) -> StatusLine {
         .iter()
         .find(|header| header.contains("User-Agent:"))
         .map_or(StatusLine::NotFound, |user_agent| {
-            StatusLine::Ok(user_agent.strip_prefix("User-Agent: ").map(|s| s.to_string()), ContentType::TextPlain)
+            StatusLine::Ok(
+                user_agent
+                    .strip_prefix("User-Agent: ")
+                    .map(|s| s.to_string()),
+                ContentType::TextPlain,
+            )
         })
 }
 
