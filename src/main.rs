@@ -211,7 +211,6 @@ fn resolve_path(request: &str) -> Option<&str> {
     request_header.split_whitespace().nth(1)
 }
 
-// Helper function to find the Content-Length from headers
 fn find_content_length(headers: &[String]) -> usize {
     headers
         .iter()
