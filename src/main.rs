@@ -132,7 +132,7 @@ fn process_request_body(buf_reader: &mut BufReader<TcpStream>, http_request: &mu
     let mut buffer = vec![0; content_length];
     buf_reader.read_exact(&mut buffer)?;
     let body = String::from_utf8_lossy(&buffer);
-    http_request.push(body.to_string());
+    http_request.push(body.trim().to_string());
     Ok(())
 }
 
