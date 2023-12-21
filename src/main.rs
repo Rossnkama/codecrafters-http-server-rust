@@ -28,12 +28,14 @@ struct Args {
     directory: PathBuf,
 }
 
+#[derive(Debug)]
 enum StatusLine {
     Ok(Option<String>, ContentType),
     Created(ContentType),
     NotFound,
 }
 
+#[derive(Debug)]
 enum ContentType {
     TextPlain,
     ApplicationOctetStream,
@@ -74,7 +76,11 @@ impl Message for StatusLine {
                 )
                 .into_bytes()
             }
-            None => format!("HTTP/1.1 {}\r\nContent-Type: {}\r\n\r\n", status_code, content_type_str).into_bytes(),
+            None => format!(
+                "HTTP/1.1 {}\r\nContent-Type: {}\r\n\r\n",
+                status_code, content_type_str
+            )
+            .into_bytes(),
         }
     }
 }
@@ -105,11 +111,14 @@ fn handle_connection(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let mut http_request = read_request(&mut buf_reader)?;
     process_request_body(&mut buf_reader, &mut http_request)?;
     let response = generate_response(&http_request)?;
+    println!("THE RESPONSE IS HERE: {:#?}", response);
     send_response(&mut buf_writer, &response)?;
     Ok(())
 }
 
-fn setup_streams(stream: TcpStream) -> Result<(BufReader<TcpStream>, BufWriter<TcpStream>), Box<dyn Error>> {
+fn setup_streams(
+    stream: TcpStream,
+) -> Result<(BufReader<TcpStream>, BufWriter<TcpStream>), Box<dyn Error>> {
     let read_stream = stream.try_clone()?;
     let write_stream = stream.try_clone()?;
     let buf_reader = BufReader::new(read_stream);
@@ -127,7 +136,10 @@ fn read_request(buf_reader: &mut BufReader<TcpStream>) -> Result<Vec<String>, Bo
     Ok(http_request)
 }
 
-fn process_request_body(buf_reader: &mut BufReader<TcpStream>, http_request: &mut Vec<String>) -> Result<(), Box<dyn Error>> {
+fn process_request_body(
+    buf_reader: &mut BufReader<TcpStream>,
+    http_request: &mut Vec<String>,
+) -> Result<(), Box<dyn Error>> {
     let content_length = find_content_length(http_request);
     let mut buffer = vec![0; content_length];
     buf_reader.read_exact(&mut buffer)?;
@@ -149,7 +161,10 @@ fn generate_response(http_request: &[String]) -> Result<StatusLine, Box<dyn Erro
     }
 }
 
-fn send_response(buf_writer: &mut BufWriter<TcpStream>, response: &StatusLine) -> Result<(), Box<dyn Error>> {
+fn send_response(
+    buf_writer: &mut BufWriter<TcpStream>,
+    response: &StatusLine,
+) -> Result<(), Box<dyn Error>> {
     buf_writer.write_all(&response.get_message())?;
     buf_writer.flush()?;
     Ok(())
@@ -182,7 +197,9 @@ fn handle_file_path(file_path: &str, request_data: &[String]) -> StatusLine {
 
     match request_type {
         Some(GET) => fs::read_to_string(&full_path)
-            .map(|file_contents| StatusLine::Ok(Some(file_contents), ContentType::ApplicationOctetStream))
+            .map(|file_contents| {
+                StatusLine::Ok(Some(file_contents), ContentType::ApplicationOctetStream)
+            })
             .unwrap_or(StatusLine::NotFound),
         Some(POST) => {
             fs::write(&full_path, request_data.last().unwrap_or(&String::new())).unwrap();
@@ -200,7 +217,7 @@ fn handle_user_agent(request_data: &[String]) -> StatusLine {
             StatusLine::Ok(
                 user_agent
                     .strip_prefix(USER_AGENT)
-                    .map(|s| s.to_string()),
+                    .map(|s| s.trim().to_string()),
                 ContentType::TextPlain,
             )
         })
